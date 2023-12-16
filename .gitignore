@@ -1,0 +1,7 @@
+**/.#*
+**/#*#
+/.direnv
+/target
+/flake.lock.old
+/result
+/Settings.toml
