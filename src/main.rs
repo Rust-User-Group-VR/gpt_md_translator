@@ -25,12 +25,9 @@ mod opts;
 use std::{fs::File, io::{BufReader, BufWriter, Read, Write}};
 
 use async_openai::{
-    Client, config::OpenAIConfig,
-    types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
-        ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
-        CreateChatCompletionRequestArgs, CompletionUsage, FinishReason
-    }
+    config::OpenAIConfig, types::{
+        ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent, CompletionUsage, CreateChatCompletionRequestArgs, FinishReason
+    }, Client
 };
 use log::LevelFilter;
 use simplelog::{SimpleLogger, Config};
@@ -49,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let opts = get_opts();
     let config = get_config();
     let gpt_model = config.get_string("gptmodel")?;
+    log::info!("Using \"{gpt_model}\" model");
     let sys_prompt_base = if let Ok(sys_prompt) = config.get_string("sysprompt") {
         log::info!("Default overridden: using `{}` as the system prompt", sys_prompt);
         sys_prompt
@@ -147,9 +145,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn translate_md(client: &Client<OpenAIConfig>, text: &str, system_prompt: &str, model: &str) -> anyhow::Result<(String, Option<CompletionUsage>)> {
+    log::info!("Sending text to be translated...");
+    
     let mut res_buf = String::new();
 
-    let chat_msgs = vec![
+    let mut chat_msgs = vec![
         ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
             content: system_prompt.into(),
             name: None
@@ -157,29 +157,46 @@ async fn translate_md(client: &Client<OpenAIConfig>, text: &str, system_prompt: 
         ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
             content: ChatCompletionRequestUserMessageContent::Text(text.into()),
             name: None
-        })
+        }),
     ];
-    let chat = CreateChatCompletionRequestArgs::default()
-        .model(model)
-        .messages(chat_msgs)
-        .build()?;
 
-    let gpt_response = client
-        .chat()
-        .create(chat)
-        .await?;
+    loop {
+        let chat = CreateChatCompletionRequestArgs::default()
+            .model(model)
+            .messages(chat_msgs.clone())
+            .n(1)
+            .build()?;
 
-    for choice in gpt_response.choices.into_iter() {
-        if let Some(FinishReason::Stop) = choice.finish_reason {
-            if let Some(ch_content) = choice.message.content {
-                res_buf = format!("{}{}\n", res_buf, ch_content);
-            } else {
-                return Err(anyhow::anyhow!("Received an empty response!"));
+        let gpt_response = client
+            .chat()
+            .create(chat)
+            .await?;
+        let choice = &gpt_response.choices[0];
+        match choice.finish_reason {
+            Some(FinishReason::Stop) => {
+                if let Some(ref ch_content) = choice.message.content {
+                    res_buf = format!("{}{}\n", res_buf, ch_content);
+                    return Ok((res_buf, gpt_response.usage))
+                } else {
+                    return Err(anyhow::anyhow!("Received an empty response!"));
+                }
+            },
+            Some(FinishReason::Length) => {
+                if let Some(ref ch_content) = choice.message.content {
+                    log::info!("Model output limit reached! Resuming generation...");
+                    res_buf = format!("{}{}", res_buf, ch_content);
+                    chat_msgs.push(ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
+                        name: None,
+                        content: choice.message.content.clone(),
+                        tool_calls: choice.message.tool_calls.clone(),
+                        function_call: choice.message.function_call.clone()
+                    }));
+                } else {
+                    return Err(anyhow::anyhow!("Received an empty response!"));
+                }
             }
-        } else {
-            return Err(anyhow::anyhow!("Received an unacceptable finish reason!"));
+            Some(r) => return Err(anyhow::anyhow!("Received an unacceptable finish reason: {r:?}!")),
+            None => return Err(anyhow::anyhow!("Received no finish reason!"))
         }
     }
-
-    Ok((res_buf, gpt_response.usage))
 }
