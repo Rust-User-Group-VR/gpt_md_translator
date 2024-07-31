@@ -1,6 +1,6 @@
 /* File main.rs
  *
- * Copyright (C) 2023 Riccardo Sacchetto <rsacchetto(at)nexxontech(dot)it>
+ * Copyright (C) 2023, 2024 Riccardo Sacchetto <rsacchetto(at)nexxontech(dot)it>
  *
  * This file is part of GPT MD Translator.
  *
@@ -29,7 +29,7 @@ use async_openai::{
     types::{
         ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
         ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
-        CreateChatCompletionRequestArgs, CompletionUsage, FinishReason, Role
+        CreateChatCompletionRequestArgs, CompletionUsage, FinishReason
     }
 };
 use log::LevelFilter;
@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     log::trace!("Loading files...");
     let input_fn = opts.get_input_path();
     let output_fn = if opts.get_output_path().ne("") { opts.get_output_path().clone() } else {
-        let mut input_fn_parts = input_fn.split_inclusive(".");
+        let mut input_fn_parts = input_fn.split_inclusive('.');
         let fn_extension = input_fn_parts.next_back().unwrap();
 
         format!("{}translated.{}", input_fn_parts.collect::<String>(), fn_extension)
@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         text_tokens,
         sys_prompt_tokens + text_tokens);
 
-    let (output_text, usage) = if sys_prompt_tokens + text_tokens > 4097 / 2 {
+    let (output_text, usage) = if sys_prompt_tokens + text_tokens > 4096 {
         log::warn!("The input file is too big ({} tokens w/prompt). It will be chunked.", sys_prompt_tokens + text_tokens);
         let mut out_buf = String::new();
         let mut usage_buf = CompletionUsage {
@@ -151,13 +151,11 @@ async fn translate_md(client: &Client<OpenAIConfig>, text: &str, system_prompt: 
 
     let chat_msgs = vec![
         ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-            content: Some(system_prompt.into()),
-            role: Role::System,
+            content: system_prompt.into(),
             name: None
         }),
         ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-            content: Some(ChatCompletionRequestUserMessageContent::Text(text.into())),
-            role: Role::User,
+            content: ChatCompletionRequestUserMessageContent::Text(text.into()),
             name: None
         })
     ];

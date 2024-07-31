@@ -46,7 +46,7 @@ impl<'a> Iterator for MDChunker<'a> {
         while let Some(next_par) = self.paragraphs.peek() {
             let cache_tokens = self.tokenizer.encode_with_special_tokens(&self.cache).len() + 4;
             let next_par_tokens = self.tokenizer.encode_with_special_tokens(next_par).len() + 4;
-            if self.sys_prompt_tokens + cache_tokens + next_par_tokens >= 4097 / 2 {
+            if self.sys_prompt_tokens + cache_tokens + next_par_tokens >= 4096 {
                 let the_next = self.cache.clone();
                 self.cache = String::new();
                 return Some(the_next);
